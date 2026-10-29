@@ -20,4 +20,4 @@ export async function screenshot(page,name){
  saveScreenshot(directory,name,await page.screenshot({fullPage:true}));
 }
 export const apiOrigin=process.env.E2E_API_ORIGIN || 'http://127.0.0.1:8000';
-if(!/^https?:\/\/[^/]+$/.test(apiOrigin) || new URL(apiOrigin).username || new URL(apiOrigin).password)throw new Error('E2E_API_ORIGIN must be an HTTP origin without credentials');
+if(!/^https?:\/\/[^/]+(?:\/api)?$/.test(apiOrigin) || new URL(apiOrigin).username || new URL(apiOrigin).password || new URL(apiOrigin).search || new URL(apiOrigin).hash)throw new Error('E2E_API_ORIGIN must be an HTTP origin optionally ending in /api, without credentials');

@@ -1,0 +1,21 @@
+{$PANGANNADI_PUBLIC_HOST} {
+    header {
+        Cache-Control "no-store"
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "same-origin"
+        -Server
+    }
+    route {
+        forward_auth 127.0.0.1:8000 {
+            uri /health
+        }
+        handle_path /api/* {
+            reverse_proxy 127.0.0.1:8000
+        }
+        handle {
+            root * "{$PANGANNADI_FRONTEND_DIST}"
+            file_server
+        }
+    }
+}

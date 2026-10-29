@@ -1,0 +1,27 @@
+[Unit]
+Description=PanganNadi loopback API
+After=network.target
+
+[Service]
+Type=simple
+User=pangannadi
+Group=pangannadi
+WorkingDirectory=/opt/pangannadi/backend
+EnvironmentFile=/etc/pangannadi/backend.env
+Environment=PANGANNADI_ENV=production
+Environment=PANGANNADI_DATABASE_URL=sqlite:////var/lib/pangannadi/pangannadi.sqlite3
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/env /opt/pangannadi/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --no-proxy-headers
+Restart=on-failure
+RestartSec=5
+UMask=0077
+StateDirectory=pangannadi
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pangannadi
+
+[Install]
+WantedBy=multi-user.target

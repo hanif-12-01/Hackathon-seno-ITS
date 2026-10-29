@@ -19,6 +19,13 @@
 !/backend/app/core/__init__.py
 !/backend/app/core/config.py
 !/backend/app/core/database.py
+!/backend/app/core/security.py
+!/backend/backup_sqlite.py
+!/backend/requirements-linux-x86_64-py312.txt
+!/backend/tests/test_backup_sqlite.py
+!/backend/tests/test_m7e_security.py
+!/Caddyfile.m7e
+!/pangannadi-backend.service.m7e
 !/backend/app/main.py
 !/backend/app/models/__init__.py
 !/backend/app/models/db_models.py

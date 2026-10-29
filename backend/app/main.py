@@ -8,6 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import engine, Base, upgrade_integrity_schema, upgrade_dispatch_schema, upgrade_receiving_schema, upgrade_replanning_schema, upgrade_checkpoint_schema
 from app.api.routes import router as api_router
+from app.core.security import DemoPerimeter
+
+if os.environ.get('PANGANNADI_ENV', 'development') not in ('development', 'production', 'test'):
+    raise ValueError('PANGANNADI_ENV must be development, test or production')
+
 
 # Inisialisasi skema database SQLite
 upgrade_integrity_schema()
@@ -41,6 +46,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+DemoPerimeter(None, cors_origins, production=production)
+app.add_middleware(DemoPerimeter, origins=cors_origins, production=production)
 
 app.include_router(api_router)
 
