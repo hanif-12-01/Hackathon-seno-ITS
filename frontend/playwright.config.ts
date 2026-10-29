@@ -1,0 +1,12 @@
+import {defineConfig} from '@playwright/test';
+import {mkdirSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {evidenceDirectory,claimDirectory} from './evidence-utils.mjs';
+const root=resolve(process.env.E2E_EVIDENCE_ROOT || 'evidence/m7c');
+const worker=process.env.TEST_WORKER_INDEX!==undefined;
+if(!worker)mkdirSync(root,{recursive:true});
+const directory=worker ? process.env.M7C_E2E_DIRECTORY : evidenceDirectory(root);
+if(!directory)throw new Error('Missing controller evidence directory');
+if(!worker)claimDirectory(directory);
+process.env.M7C_E2E_DIRECTORY=directory;
+export default defineConfig({testDir:'./e2e',workers:1,timeout:90000,outputDir:resolve(directory,'artifacts'),use:{channel:'chrome',baseURL:process.env.E2E_BASE_URL || 'http://127.0.0.1:5173',trace:'retain-on-failure'},reporter:[['list'],['json',{outputFile:resolve(directory,'results.json')}]]});
