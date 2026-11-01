@@ -1,9 +1,134 @@
-import {useEffect,useState} from 'react';
+import {useEffect, useState} from 'react';
 import {wib} from './lib/api';
 import type {Shipment} from './types';
-type Checkpoint={checkpoint_id:number;shipment_id:string;event_type:string;note:string|null;actor_id:string;timestamp:string;transaction_ref:string;actor_mode:string};
-export function Checkpoints({shipment,actor,blocked,load,save}:{shipment:Shipment;actor:string;blocked:boolean;load:()=>Promise<Checkpoint[]>;save:(body:Record<string,unknown>)=>Promise<void>}){
- const [rows,setRows]=useState<Checkpoint[]>([]);const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [revision,setRevision]=useState(0);
- useEffect(()=>{let active=true;setLoading(true);setError('');load().then(r=>{if(active)setRows(r)}).catch(e=>{if(active)setError(String(e))}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[shipment.shipment_id,shipment.manifest_status,revision]);
- return <section aria-label={`Checkpoint ${shipment.warehouse_id}`}><h3>Checkpoint manual</h3><p>Observasi aktor simulasi. Bukan GPS, delivery, atau bukti tiba.</p>{loading?<p role="status">Memuat checkpoint…</p>:error?<div role="alert">{error}<button type="button" onClick={()=>setRevision(r=>r+1)}>Muat ulang checkpoint</button></div>:rows.length?<ol aria-label="Timeline checkpoint" className="timeline">{rows.map(r=><li key={r.checkpoint_id}><strong>{r.event_type}</strong><p>{r.note??'Tanpa catatan'}</p><p>{r.actor_id} · {wib(r.timestamp)}</p><small>{r.transaction_ref} · {r.actor_mode}</small></li>)}</ol>:<p>Belum ada checkpoint.</p>}<form onSubmit={async e=>{e.preventDefault();const f=new globalThis.FormData(e.currentTarget);await save({actor_id:actor.trim(),event_type:String(f.get('event_type')),note:String(f.get('note')).trim()||null});setRevision(r=>r+1)}}><fieldset disabled={blocked||loading||!actor.trim()||shipment.manifest_status!=='DISPATCHED'||shipment.actual_dispatched_quantity_kg<=0}><label>Jenis checkpoint {shipment.warehouse_id}<select aria-label={`Jenis checkpoint ${shipment.warehouse_id}`} name="event_type" required><option value="IN_TRANSIT">IN_TRANSIT</option><option value="AT_CHECKPOINT">AT_CHECKPOINT</option><option value="DELAY_REPORTED">DELAY_REPORTED</option></select></label><label>Catatan checkpoint {shipment.warehouse_id}<textarea name="note" maxLength={2000}/></label><button>Simpan checkpoint {shipment.warehouse_id}</button></fieldset></form></section>
+type Checkpoint = {
+  checkpoint_id: number;
+  shipment_id: string;
+  event_type: string;
+  note: string | null;
+  actor_id: string;
+  timestamp: string;
+  transaction_ref: string;
+  actor_mode: string;
+};
+export function Checkpoints({
+  shipment,
+  actor,
+  blocked,
+  load,
+  save,
+}: {
+  shipment: Shipment;
+  actor: string;
+  blocked: boolean;
+  load: () => Promise<Checkpoint[]>;
+  save: (body: Record<string, unknown>) => Promise<void>;
+}) {
+  const [rows, setRows] = useState<Checkpoint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError('');
+    load()
+      .then((r) => {
+        if (active) setRows(r);
+      })
+      .catch((e) => {
+        if (active) setError(String(e));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [shipment.shipment_id, shipment.manifest_status, revision]);
+  return (
+    <section aria-label={`Checkpoint ${shipment.warehouse_id}`}>
+      <h3>Checkpoint manual</h3>
+      <p>
+        Lokasi dilaporkan pengemudi atau petugas. Catatan manual ini bukan GPS
+        langsung atau bukti barang diterima.
+      </p>
+      {loading ? (
+        <p role="status">Memuat checkpoint…</p>
+      ) : error ? (
+        <div role="alert">
+          {error}
+          <button type="button" onClick={() => setRevision((r) => r + 1)}>
+            Muat ulang checkpoint
+          </button>
+        </div>
+      ) : rows.length ? (
+        <ol aria-label="Timeline checkpoint" className="timeline">
+          {rows.map((r) => (
+            <li key={r.checkpoint_id}>
+              <strong>
+                {r.event_type === 'IN_TRANSIT'
+                  ? 'Dalam perjalanan'
+                  : r.event_type === 'AT_CHECKPOINT'
+                    ? 'Tiba di checkpoint'
+                    : 'Keterlambatan dilaporkan'}
+              </strong>
+              <p>{r.note ?? 'Tanpa catatan'}</p>
+              <p>
+                {r.actor_id} · {wib(r.timestamp)}
+              </p>
+              <details>
+                <summary>Referensi pencatatan</summary>
+                <small>
+                  {r.transaction_ref} · {r.actor_mode}
+                </small>
+              </details>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p>Belum ada checkpoint.</p>
+      )}
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const f = new globalThis.FormData(e.currentTarget);
+          await save({
+            actor_id: actor.trim(),
+            event_type: String(f.get('event_type')),
+            note: String(f.get('note')).trim() || null,
+          });
+          setRevision((r) => r + 1);
+        }}
+      >
+        <fieldset
+          disabled={
+            blocked ||
+            loading ||
+            !actor.trim() ||
+            shipment.manifest_status !== 'DISPATCHED' ||
+            shipment.actual_dispatched_quantity_kg <= 0
+          }
+        >
+          <label>
+            Jenis checkpoint {shipment.warehouse_id}
+            <select
+              aria-label={`Jenis checkpoint ${shipment.warehouse_id}`}
+              name="event_type"
+              required
+            >
+              <option value="IN_TRANSIT">Dalam perjalanan</option>
+              <option value="AT_CHECKPOINT">Tiba di checkpoint</option>
+              <option value="DELAY_REPORTED">Laporkan keterlambatan</option>
+            </select>
+          </label>
+          <label>
+            Catatan checkpoint {shipment.warehouse_id}
+            <textarea name="note" maxLength={2000} />
+          </label>
+          <button>Simpan checkpoint {shipment.warehouse_id}</button>
+        </fieldset>
+      </form>
+    </section>
+  );
 }

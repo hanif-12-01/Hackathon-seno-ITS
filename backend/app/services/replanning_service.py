@@ -1,5 +1,6 @@
 """Single-cycle recovery; final reconciliation and shared capacity are authoritative."""
 import json
+from app.core.database import begin_mutation
 import math
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -11,6 +12,7 @@ from app.services.capacity import capacity, current_snapshot, operational_day
 from app.services.gate import DataReadinessGate
 from app.services.optimizer import OptimizationEngine
 from app.services.audit_service import AuditService
+from app.core.security import audit_actor_mode
 
 
 class ReplanningConflict(Exception):
@@ -103,8 +105,7 @@ class ReplanningService:
             raise ValueError("Session memiliki perubahan tertunda.")
         db.rollback()
         try:
-            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
-            db.expire_all()
+            begin_mutation(db)
             payload = json.dumps({"case_id": case_id, **req.model_dump()}, sort_keys=True, separators=(",", ":"))
             previous = db.get(ReplanningEvent, req.transaction_ref)
             if previous:
@@ -175,7 +176,7 @@ class ReplanningService:
             db.flush()
             AuditService.record_log(db, "RECOVERY_EVALUATED", req.actor_id,
                 {"result": result, "input": inputs, "transaction_ref": req.transaction_ref,
-                    "actor_mode": "SIMULATION_UNAUTHENTICATED"}, case_id)
+                    "actor_mode": audit_actor_mode()}, case_id)
             db.add(ReplanningEvent(transaction_ref=req.transaction_ref, case_id=case_id,
                 source_reconciliation_id=recon.id, plan_id=plan_id, operational_date=operational_day(),
                 request_payload=payload, decision_input=json.dumps(inputs), response_payload=json.dumps(result),

@@ -1,4 +1,5 @@
 import uuid
+from app.core.database import begin_mutation
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError, IntegrityError
 from app.models.db_models import AllocationPlan, Reservation, Approval, DistributionCase
@@ -28,8 +29,7 @@ class ApprovalService:
             raise ValueError("Approval membutuhkan session tanpa perubahan tertunda.")
         db.rollback()
         try:
-            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
-            db.expire_all()
+            begin_mutation(db)
             plan = db.query(AllocationPlan).filter_by(id=plan_id).first()
             if not plan:
                 raise ValueError(f"Rencana alokasi {plan_id} tidak ditemukan.")

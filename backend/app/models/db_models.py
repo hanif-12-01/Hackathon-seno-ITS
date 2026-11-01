@@ -11,6 +11,7 @@ from sqlalchemy import (
     UniqueConstraint,
     CheckConstraint,
     BigInteger,
+    Numeric,
 )
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -177,7 +178,7 @@ class Shipment(Base):
     planned_quantity_kg = Column(Integer, nullable=False)
     actual_dispatched_quantity_kg = Column(Integer, nullable=False, default=0)
     unshipped_cancelled_quantity_kg = Column(Integer, nullable=False, default=0)
-    estimated_cost_cents = Column(BigInteger, nullable=False, default=0)
+    estimated_cost_cents = Column(BigInteger().with_variant(Numeric(38, 0), "postgresql"), nullable=False, default=0)
     operational_date = Column(String(10), nullable=False)
     dispatch_timestamp = Column(DateTime, nullable=True)
     manifest_status = Column(String(30), nullable=False, default="READY_TO_SHIP")
@@ -223,7 +224,7 @@ class DispatchUsage(Base):
 class Receipt(Base):
     __tablename__ = "receipts"
     __table_args__ = (
-        CheckConstraint("typeof(arrived_weight_kg) = 'integer' AND typeof(rejected_weight_kg) = 'integer'"),
+        CheckConstraint("typeof(arrived_weight_kg) = 'integer' AND typeof(rejected_weight_kg) = 'integer'").ddl_if(dialect="sqlite"),
         CheckConstraint("0 <= rejected_weight_kg AND rejected_weight_kg <= arrived_weight_kg AND arrived_weight_kg <= total_dispatched_kg"),
         CheckConstraint("sound_weight_kg = arrived_weight_kg - rejected_weight_kg AND transit_discrepancy_kg = total_dispatched_kg - arrived_weight_kg"),
     )
@@ -231,7 +232,7 @@ class Receipt(Base):
     case_id = Column(String(50), ForeignKey("distribution_cases.id"), nullable=False, unique=True)
     plan_id = Column(String(50), ForeignKey("allocation_plans.id"), nullable=False, unique=True)
     total_dispatched_kg = Column(Integer, nullable=False)
-    estimated_cost_cents = Column(BigInteger, nullable=False)
+    estimated_cost_cents = Column(BigInteger().with_variant(Numeric(38, 0), "postgresql"), nullable=False)
     arrived_weight_kg = Column(Integer, nullable=False)
     rejected_weight_kg = Column(Integer, nullable=False)
     sound_weight_kg = Column(Integer, nullable=False)
@@ -252,7 +253,7 @@ class ReceiptShipment(Base):
 class Reconciliation(Base):
     __tablename__ = "reconciliations"
     __table_args__ = (
-        CheckConstraint("target_demand_kg >= 0 AND total_sound_kg >= 0 AND unmet_demand_kg = max(0, target_demand_kg - total_sound_kg)"),
+        CheckConstraint("target_demand_kg >= 0 AND total_sound_kg >= 0 AND unmet_demand_kg = CASE WHEN target_demand_kg > total_sound_kg THEN target_demand_kg - total_sound_kg ELSE 0 END"),
     )
     id = Column(String(50), primary_key=True)
     case_id = Column(String(50), ForeignKey("distribution_cases.id"), nullable=False, unique=True)

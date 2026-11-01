@@ -1,5 +1,6 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from app.core.security import bind_actor, hosted_mode
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -26,6 +27,14 @@ from app.services.approval_service import (
 )
 
 router = APIRouter()
+
+
+@router.get('/session')
+def session(request: Request):
+    principal = getattr(request.state, 'principal', None)
+    if principal is None:
+        raise HTTPException(401, 'Authentication required')
+    return {'principal': principal, 'role': request.state.role}
 
 from app.models.schemas import DispatchRequest, CancellationRequest, DispatchResponse, ShipmentResponse, WarehouseStateResponse
 from app.models.db_models import Shipment
@@ -59,7 +68,8 @@ def get_operation(transaction_ref: str, db: Session = Depends(get_db)):
 
 
 @router.post("/cases/{id}/replan")
-def replan_case(id: str, req: ReplanRequest, db: Session = Depends(get_db)):
+def replan_case(id: str, req: ReplanRequest, request: Request, db: Session = Depends(get_db)):
+    bind_actor(request, req, 'actor_id')
     try:
         return ReplanningService.generate(db, id, req)
     except LookupError as exc:
@@ -86,7 +96,8 @@ def replanning_history(id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/cases/{id}/receipts", status_code=201)
-def receive_case(id: str, req: ReceiptRequest, db: Session = Depends(get_db)):
+def receive_case(id: str, req: ReceiptRequest, request: Request, db: Session = Depends(get_db)):
+    bind_actor(request, req, 'inspector_id')
     try:
         return ReceivingService.execute(db, id, req)
     except LookupError as exc:
@@ -96,7 +107,8 @@ def receive_case(id: str, req: ReceiptRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/cases/{id}/reconcile")
-def reconcile_case(id: str, req: ReconcileRequest, db: Session = Depends(get_db)):
+def reconcile_case(id: str, req: ReconcileRequest, request: Request, db: Session = Depends(get_db)):
+    bind_actor(request, req, 'actor_id')
     try:
         return ReceivingService.execute(db, id, req, "FINALIZE")
     except LookupError as exc:
@@ -122,7 +134,8 @@ def get_reconciliation(id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/shipments/{id}/checkpoints", status_code=201)
-def create_checkpoint(id: str, req: CheckpointRequest, db: Session = Depends(get_db)):
+def create_checkpoint(id: str, req: CheckpointRequest, request: Request, db: Session = Depends(get_db)):
+    bind_actor(request, req, 'actor_id')
     try:
         return record_checkpoint(db, id, req)
     except LookupError as exc:
@@ -140,7 +153,8 @@ def list_checkpoints(id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/shipments/{id}/dispatch", response_model=DispatchResponse)
-def dispatch_shipment(id: str, req: DispatchRequest, db: Session = Depends(get_db)):
+def dispatch_shipment(id: str, req: DispatchRequest, request: Request, db: Session = Depends(get_db)):
+    bind_actor(request, req, 'actor_id')
     try:
         return ShipmentService.execute(db, id, req)
     except LookupError as exc:
@@ -150,7 +164,8 @@ def dispatch_shipment(id: str, req: DispatchRequest, db: Session = Depends(get_d
 
 
 @router.post("/shipments/{id}/cancel-reservation", response_model=DispatchResponse)
-def cancel_shipment_reservation(id: str, req: CancellationRequest, db: Session = Depends(get_db)):
+def cancel_shipment_reservation(id: str, req: CancellationRequest, request: Request, db: Session = Depends(get_db)):
+    bind_actor(request, req, 'actor_id')
     try:
         return ShipmentService.execute(db, id, req, "CANCEL")
     except LookupError as exc:
@@ -176,9 +191,10 @@ def get_warehouse_capacity(id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/cases", response_model=CaseCreateResponse, status_code=status.HTTP_201_CREATED)
-def create_case(req: CaseCreateRequest, db: Session = Depends(get_db)):
+def create_case(req: CaseCreateRequest, request: Request, db: Session = Depends(get_db)):
     """Pendaftaran kasus distribusi pangan baru beserta snapshot inventaris."""
     try:
+        bind_actor(request, req, 'created_by')
         case = CaseService.create_case(db=db, req=req)
         return CaseCreateResponse(
             status="success",
@@ -271,10 +287,13 @@ def get_case(id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/cases/{id}/validate", response_model=ValidationResponse)
-def validate_case(id: str, db: Session = Depends(get_db)):
+def validate_case(id: str, request: Request, db: Session = Depends(get_db)):
     """Pemeriksaan Data Readiness Gate pra-optimasi."""
+    actor_id = getattr(request.state, 'principal', None)
+    if hosted_mode() and actor_id is None:
+        raise HTTPException(401, 'Authentication required')
     try:
-        return CaseService.validate_gate(db=db, case_id=id)
+        return CaseService.validate_gate(db=db, case_id=id, actor_id=actor_id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except Exception as e:
@@ -282,10 +301,13 @@ def validate_case(id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/cases/{id}/optimize", response_model=OptimizeResponse)
-def optimize_case(id: str, db: Session = Depends(get_db)):
+def optimize_case(id: str, request: Request, db: Session = Depends(get_db)):
     """Eksekusi solver Google OR-Tools CP-SAT untuk formulasi alokasi awal (Plan v1)."""
+    actor_id = getattr(request.state, 'principal', None)
+    if hosted_mode() and actor_id is None:
+        raise HTTPException(401, 'Authentication required')
     try:
-        return CaseService.optimize_case(db=db, case_id=id)
+        return CaseService.optimize_case(db=db, case_id=id, actor_id=actor_id)
     except ValueError as e:
         # Jika verifikasi demand belum terpenuhi, tolak dengan HTTP 422 Unprocessable Entity
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
@@ -294,9 +316,10 @@ def optimize_case(id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/plans/{id}/approve", response_model=ApproveResponse)
-def approve_plan(id: str, req: ApproveRequest, db: Session = Depends(get_db)):
+def approve_plan(id: str, req: ApproveRequest, request: Request, db: Session = Depends(get_db)):
     """Persetujuan rencana alokasi dan penguncian reservasi stok aman & kuota harian secara atomik."""
     try:
+        bind_actor(request, req, 'actor_id')
         return ApprovalService.approve_plan(db=db, plan_id=id, req=req)
     except InsufficientCapacityConflictError as e:
         # HTTP 409 Conflict bila kapasitas aman atau kuota armada terlampaui

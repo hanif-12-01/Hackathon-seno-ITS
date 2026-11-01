@@ -9,6 +9,20 @@
     "test": "node --experimental-strip-types --test src/tests/*.test.ts",
     "test:e2e": "playwright test"
   },
-  "dependencies": {"react": "^19.2.0", "react-dom": "^19.2.0"},
-  "devDependencies": {"@types/react": "^19.2.0", "@types/react-dom": "^19.2.0", "typescript": "~5.9.3", "vite": "^7.1.12", "@playwright/test": "^1.56.1"}
+  "dependencies": {
+    "@gsap/react": "^2.1.2",
+    "gsap": "^3.15.0",
+    "lucide-react": "^1.66.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "recharts": "^3.10.1"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.56.1",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.1.12"
+  }
 }

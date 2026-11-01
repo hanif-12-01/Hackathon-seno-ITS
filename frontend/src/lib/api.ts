@@ -7,14 +7,43 @@ export class ApiError extends Error {
   }
 }
 
+let authorization = '';
+let sessionVersion = 0;
+export const currentSessionVersion = () => sessionVersion;
+export function clearCredentials() { authorization = ''; sessionVersion++; }
+export function setCredentials(username: string, password: string) {
+  if (!username || username.includes(':')) throw new Error('Nama akun tidak valid');
+  authorization = 'Basic ' + btoa(Array.from(new TextEncoder().encode(`${username}:${password}`), byte => String.fromCharCode(byte)).join(''));
+  sessionVersion++;
+}
+
 export async function request<T>(base: string, path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${base.replace(/\/$/, '')}${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: body === undefined ? {} : {'Content-Type': 'application/json'},
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(30000),
-  });
+  const version = sessionVersion;
+  const target = `${base.replace(/\/$/, '')}${path}`;
+  if (authorization && new URL(target, location.href).origin !== location.origin) throw new Error('Login hanya untuk API same-origin');
+  let response: Response;
+  try {
+    response = await fetch(target, {
+      method: body === undefined ? 'GET' : 'POST',
+      credentials: 'same-origin',
+      redirect: 'error',
+      headers: {'X-PanganNadi-UI': '1', ...(body === undefined ? {} : {'Content-Type': 'application/json'}), ...(authorization ? {Authorization: authorization} : {})},
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(30000),
+    });
+  } catch (err: unknown) {
+    if (err instanceof TypeError && String(err).toLowerCase().includes('redirect')) {
+      throw new ApiError(302, 'Sesi Vercel SSO dialihkan. Muat ulang halaman untuk autentikasi Vercel.');
+    }
+    throw err;
+  }
+  if (version !== sessionVersion) throw new Error('Sesi berubah; respons sesi sebelumnya diabaikan.');
   const text = await response.text();
+  if (version !== sessionVersion) throw new Error('Sesi berubah; respons sesi sebelumnya diabaikan.');
+  if (response.status === 401 && typeof window !== 'undefined') {
+    clearCredentials();
+    window.dispatchEvent(new Event('pangannadi-login-required'));
+  }
   let data;
   try { data = JSON.parse(text); } catch { if (!response.ok) throw new ApiError(response.status, 'Respons bukan JSON'); throw new Error('Respons sukses tidak dapat dibaca; hasil belum diketahui.'); }
   if (!response.ok) throw new ApiError(response.status, data.detail ?? data);

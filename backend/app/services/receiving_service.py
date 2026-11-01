@@ -1,5 +1,6 @@
 """One combined receipt/final reconciliation per MVP case; no source inventory mutation."""
 import json
+from app.core.database import begin_mutation
 import uuid
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
@@ -7,6 +8,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from app.models.db_models import (DistributionCase, AllocationPlan, AllocationLine,
     Shipment, ShipmentEvent, Reservation, Receipt, ReceiptShipment, Reconciliation, ReceivingEvent, ReplanningEvent, ShipmentCheckpoint)
 from app.services.audit_service import AuditService
+from app.core.security import audit_actor_mode
 
 
 class ReceivingConflict(Exception):
@@ -82,8 +84,7 @@ class ReceivingService:
             raise ValueError("Session memiliki perubahan tertunda.")
         db.rollback()
         try:
-            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
-            db.expire_all()
+            begin_mutation(db)
             payload = json.dumps({"case_id": case_id, "action": action, **req.model_dump()}, sort_keys=True, separators=(",", ":"))
             previous = db.get(ReceivingEvent, req.transaction_ref)
             if previous:
@@ -149,7 +150,7 @@ class ReceivingService:
                 result = reconciliation_detail(db, case_id)
                 actor = req.actor_id
             AuditService.record_log(db, "RECEIPT_INSPECTED" if action == "RECEIVE" else "RECONCILIATION_FINALIZED",
-                actor, {**result, "transaction_ref": req.transaction_ref, "actor_mode": "SIMULATION_UNAUTHENTICATED"}, case_id)
+                actor, {**result, "transaction_ref": req.transaction_ref, "actor_mode": audit_actor_mode()}, case_id)
             db.add(ReceivingEvent(transaction_ref=req.transaction_ref, case_id=case_id, action_type=action,
                 request_payload=payload, response_payload=json.dumps(result), timestamp=now))
             db.commit()

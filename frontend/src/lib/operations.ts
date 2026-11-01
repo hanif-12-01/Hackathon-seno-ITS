@@ -1,4 +1,4 @@
-import {ApiError,request} from './api.ts';
+import {ApiError,currentSessionVersion,request} from './api.ts';
 
 type Operation = {id:string;endpoint:string;fingerprint:string;body:Record<string,unknown>;state:'pending'|'uncertain'|'confirmed'|'rejected';result?:unknown};
 export const canonical=(value:unknown):string=>JSON.stringify(value,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
@@ -6,9 +6,14 @@ export class Operations {
  private running=false;
  private key:string;
  private base:string;
- private storage:Pick<Storage,'getItem'|'setItem'>;
- constructor(base:string,storage:Pick<Storage,'getItem'|'setItem'>){this.base=base;this.storage=storage;this.key=`pangannadi.operations.v1:${base}`;} public poisoned=false; private loaded=false; private snapshot:string|null=null;
- private read():Operation[]{
+  private storage:Pick<Storage,'getItem'|'setItem'>;
+  private session=currentSessionVersion();
+  constructor(base:string,storage:Pick<Storage,'getItem'|'setItem'>,principal?:string){this.base=base;this.storage=storage;this.key=principal?`pangannadi.operations.v2:${encodeURIComponent(base)}:${encodeURIComponent(principal)}`:`pangannadi.operations.v1:${base}`;
+   // ponytail: legacy journals have no owner; unresolved operations require explicit recovery, never automatic adoption.
+   if(principal){const legacy=storage.getItem(`pangannadi.operations.v1:${base}`);if(legacy){const rows=JSON.parse(legacy);if(!Array.isArray(rows)||rows.some(r=>!r||!['confirmed','rejected'].includes(r.state)))throw Error('Jurnal lama tanpa identitas belum selesai; pemulihan operator diperlukan sebelum mutasi.');}}
+  } public poisoned=false; private loaded=false; private snapshot:string|null=null;
+  private read():Operation[]{
+   if(this.session!==currentSessionVersion())throw Error('Sesi jurnal berubah; masuk kembali.');
   if(this.poisoned)throw Error('Penyimpanan tidak aman; mutasi diblokir.');
   const raw=this.storage.getItem(this.key);if(this.loaded&&raw!==this.snapshot){this.poisoned=true;throw Error('Jurnal berubah di luar sesi; mutasi diblokir.');}this.loaded=true;this.snapshot=raw;if(raw===null)return [];
   const rows:Operation[]=JSON.parse(raw);

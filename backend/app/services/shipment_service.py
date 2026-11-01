@@ -1,5 +1,6 @@
 """One actual departure per allocation line; SQLite owns cross-connection locking."""
 import json
+from app.core.database import begin_mutation
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -10,6 +11,7 @@ from app.services.capacity import capacity, current_snapshot, operational_day
 from app.services.optimizer import OptimizationEngine
 from app.services.audit_service import AuditService
 from app.services.gate import DataReadinessGate
+from app.core.security import audit_actor_mode
 
 
 class ShipmentConflict(Exception):
@@ -72,8 +74,7 @@ def record_checkpoint(db, shipment_id, req):
         raise ValueError("Session memiliki perubahan tertunda.")
     db.rollback()
     try:
-        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
-        db.expire_all()
+        begin_mutation(db)
         payload = json.dumps({"shipment_id": shipment_id, **req.model_dump()}, sort_keys=True, separators=(",", ":"))
         previous = db.query(ShipmentCheckpoint).filter_by(transaction_ref=req.transaction_ref).first()
         if previous:
@@ -104,7 +105,7 @@ def record_checkpoint(db, shipment_id, req):
         db.add(row)
         db.flush()
         result = {"checkpoint_id": row.id, "shipment_id": shipment_id, **req.model_dump(),
-            "timestamp": now.isoformat(), "actor_mode": "SIMULATION_UNAUTHENTICATED"}
+            "timestamp": now.isoformat(), "actor_mode": audit_actor_mode()}
         row.response_payload = json.dumps(result)
         AuditService.record_log(db, "SHIPMENT_CHECKPOINT_RECORDED", req.actor_id, result, case.id)
         db.commit()
@@ -124,8 +125,7 @@ class ShipmentService:
             raise ValueError("Session memiliki perubahan tertunda.")
         db.rollback()
         try:
-            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
-            db.expire_all()
+            begin_mutation(db)
             payload = json.dumps({"shipment_id": shipment_id, "action": action,
                 **req.model_dump()}, sort_keys=True, separators=(",", ":"))
             previous = db.get(ShipmentEvent, req.transaction_ref)
@@ -215,7 +215,7 @@ class ShipmentService:
                 "actual_dispatched_quantity_kg": actual, "reservation_consumed_kg": actual,
                 "reservation_cancelled_kg": cancel, "cancellation_reason": req.cancellation_reason,
                 "before": before, "after": after, "result": "COMMITTED",
-                "actor_mode": "SIMULATION_UNAUTHENTICATED", "operational_date": operational_day()}
+                "actor_mode": audit_actor_mode(), "operational_date": operational_day()}
             if action == "DISPATCH":
                 AuditService.record_log(db, "DISPATCH_CONFIRMED", req.actor_id, details, case.id)
             if cancel:

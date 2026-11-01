@@ -1,4 +1,5 @@
 import uuid
+from app.core.database import begin_mutation
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 from sqlalchemy.orm import Session
@@ -27,8 +28,7 @@ class CaseService:
             raise ValueError("Pembuatan kasus membutuhkan session tanpa perubahan tertunda.")
         db.rollback()
         try:
-            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
-            db.expire_all()
+            begin_mutation(db)
             return CaseService._create_case(db, req)
         except Exception:
             db.rollback()
@@ -148,7 +148,16 @@ class CaseService:
         return case
 
     @staticmethod
-    def validate_gate(db: Session, case_id: str) -> Dict[str, Any]:
+    def validate_gate(db: Session, case_id: str, actor_id: str = None) -> Dict[str, Any]:
+        try:
+            begin_mutation(db)
+            return CaseService._validate_gate(db, case_id, actor_id)
+        except Exception:
+            db.rollback()
+            raise
+
+    @staticmethod
+    def _validate_gate(db: Session, case_id: str, actor_id: str = None) -> Dict[str, Any]:
         """Menjalankan validasi Data Readiness Gate."""
         case = db.query(DistributionCase).filter(DistributionCase.id == case_id).first()
         if not case:
@@ -167,20 +176,29 @@ class CaseService:
 
         if result["is_ready"] and case.status == "DRAFT":
             case.status = "VALIDATED"
-            db.commit()
 
         AuditService.record_log(
             db=db,
             case_id=case_id,
             action_type="GATE_VALIDATED",
-            actor_id=case.created_by,
+            actor_id=actor_id if actor_id is not None else case.created_by,
             details=result,
         )
         db.commit()
         return result
 
     @staticmethod
-    def optimize_case(db: Session, case_id: str) -> Dict[str, Any]:
+    def optimize_case(db: Session, case_id: str, actor_id: str = None) -> Dict[str, Any]:
+        try:
+            if db.get_bind().dialect.name != "sqlite":
+                begin_mutation(db)
+            return CaseService._optimize_case(db, case_id, actor_id)
+        except Exception:
+            db.rollback()
+            raise
+
+    @staticmethod
+    def _optimize_case(db: Session, case_id: str, actor_id: str = None) -> Dict[str, Any]:
         """Menjalankan optimasi OR-Tools CP-SAT untuk menghasilkan Plan v1."""
         case = db.query(DistributionCase).filter(DistributionCase.id == case_id).first()
         if not case:
@@ -259,6 +277,7 @@ class CaseService:
             action_type="OPTIMIZATION_EXECUTED",
             actor_id="system-solver-cp-sat",
             details={
+                **({"initiator_id": actor_id} if actor_id is not None else {}),
                 "plan_id": plan_id,
                 "solver_status": solve_res["solver_status"],
                 "fulfillment_status": solve_res["fulfillment_status"],

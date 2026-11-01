@@ -1,6 +1,64 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {ApiError, kg, rupiah, wib, request, horizonLabel, describeUnavailableReason, describeTargetSchedule, mapChartSeries} from '../lib/api.ts';
+import {ApiError, clearCredentials, setCredentials, kg, rupiah, wib, request, horizonLabel, describeUnavailableReason, describeTargetSchedule, mapChartSeries} from '../lib/api.ts';
+
+test('same-origin requests retain credentials, memory auth isolated, logout clears credentials', async () => {
+  const original = globalThis.fetch;
+  Object.defineProperty(globalThis, 'location', {configurable: true, value: new URL('https://stage.example.test/')});
+  let calls = 0;
+  globalThis.fetch = async (_input, init) => {
+    calls++;
+    assert.equal(init?.credentials, 'same-origin');
+    assert.equal(init?.redirect, 'error');
+    const headers = init?.headers as Record<string, string>;
+    if (calls === 1) assert.equal(headers.Authorization, 'Basic ' + btoa('alice:secret'));
+    else assert.equal(headers.Authorization, undefined);
+    return new Response('{}');
+  };
+  try {
+    setCredentials('alice', 'secret');
+    await request('/api', '/session');
+    await assert.rejects(request('https://other.example.test', '/session'), /same-origin/);
+    assert.equal(calls, 1);
+    clearCredentials();
+    await request('/api', '/session');
+    assert.equal(calls, 2);
+  } finally { clearCredentials(); globalThis.fetch = original; }
+});
+
+test('redirect error classified as 302 and distinct from 401', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new TypeError('Failed to fetch (redirect loop / redirect blocked)');
+  };
+  try {
+    await assert.rejects(
+      request('/api', '/session'),
+      (err: unknown) => err instanceof ApiError && err.status === 302 && /Vercel SSO/.test(err.message)
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('401 response dispatches login required event and clears credentials', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = (globalThis as unknown as {window?: EventTarget}).window;
+  let eventFired = false;
+  const target = new EventTarget();
+  (globalThis as unknown as {window?: EventTarget}).window = target;
+  target.addEventListener('pangannadi-login-required', () => { eventFired = true; });
+  globalThis.fetch = async () => new Response(JSON.stringify({detail: 'Authentication required'}), {status: 401});
+  try {
+    setCredentials('alice', 'wrong-pass');
+    await assert.rejects(request('/api', '/session'), (err: unknown) => err instanceof ApiError && err.status === 401);
+    assert.equal(eventFired, true);
+  } finally {
+    (globalThis as unknown as {window?: EventTarget}).window = originalWindow;
+    clearCredentials();
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test('409/422 retain actionable backend reasons', () => {
   assert.match(new ApiError(409,'Capacity changed').message, /Konflik.*Capacity changed/);

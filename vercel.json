@@ -1,0 +1,45 @@
+{
+  "services": {
+    "frontend": {
+      "root": "frontend/",
+      "framework": "vite",
+      "buildCommand": "npm run build",
+      "outputDirectory": "dist"
+    },
+    "backend": {
+      "root": "backend/",
+      "framework": "fastapi",
+      "entrypoint": "app.vercel:app",
+      "functions": {
+        "app/vercel.py": {
+          "excludeFiles": "{tests/**,private_assets/**,backend/private_assets/**,data/**,evidence/**,**/__pycache__/**,**/*.db,**/*.db-*,.env*,.venv/**,venv/**}"
+        }
+      }
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "frontend"
+      }
+    }
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "main": false
+    }
+  }
+}

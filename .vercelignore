@@ -1,0 +1,2 @@
+# Never upload the development worktree. Use tools/package_preview.py staging.
+*
